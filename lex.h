@@ -81,10 +81,12 @@ enum wsl_lex_retcode {
  * @end_r: If lexing was successful, the address of the first unconsumed
  *      character is stored here.
  */
-int wsl_lex_token(struct wsl_lex_cinfo *info,
-                  struct wsl_lex_outbuf *buffer,
-                  unsigned char *begin,
-                  unsigned char **end_r);
+enum wsl_lex_retcode
+sl_lex_token(
+        struct wsl_lex_cinfo *info,
+        struct wsl_lex_outbuf *buffer,
+        unsigned char *begin,
+        unsigned char **end_r);
 
 /**
  * Lex the last token in a line
@@ -99,10 +101,12 @@ int wsl_lex_token(struct wsl_lex_cinfo *info,
  * This works like wsl_lex_token(), except that the token is expected to be
  * followed by the terminating newline character (instead of space).
  */
-int wsl_lex_token_last(struct wsl_lex_cinfo *info,
-                       struct wsl_lex_outbuf *buffer,
-                       unsigned char *begin,
-                       unsigned char **end_r);
+enum wsl_lex_retcode
+wsl_lex_token_last(
+        struct wsl_lex_cinfo *info,
+        struct wsl_lex_outbuf *buffer,
+        unsigned char *begin,
+        unsigned char **end_r);
 
 /**
  * Lex a line of tokens separated by single spaces.
@@ -124,6 +128,51 @@ wsl_lex_line(
         struct wsl_lex_outbuf **buffer,
         unsigned char *begin,
         unsigned char **end_r);
+
+/**
+ * Lex lines of a given table
+ *
+ * @tablename: Name of the table of which rows should be lexed
+ * @info: NULL-terminated array of cinfo pointers corresponding to given table.
+ * @buffer: Array of buffer pointers corresponding to the columns in the given
+ *      table. Buffer pointers may be NULL in which case the lexems are
+ *      discarded.
+ * @begin: Pointer to beginning of the buffer to be lexed.
+ * @end: Pointer to the byte past the end of the last line that should be lexed.
+ * @begin_r: When this function returns, the storage at that location contains
+ *      the address of the first line that was *not* lexed successfully.
+ *
+ * Return: WSL_OK if all lines in the buffer were lexed. Otherwise, the reason
+ *      why the line at *begin_r* was not lexed successfully:
+ *
+ *      - WSL_LEX_ERROR
+ *      - WSL_LEX_WRONG_TABLE
+ *      - WSL_LEX_OUTBUF_FULL
+ *      - WSL_LEX_OOM
+ */
+enum wsl_lex_retcode
+wsl_lex_lines(
+        unsigned char *tablename,
+        struct wsl_lex_cinfo **info,
+        struct wsl_lex_outbuf **buffer,
+        unsigned char *begin,
+        unsigned char *end,
+        unsigned char **begin_r);
+
+/**
+ * Lookup the table of a tuple line from a list of table names.
+ *
+ * @tablenames: NULL-terminated array of tablenames.
+ * @line: A newline-terminated buffer.
+ *
+ * Returns: The index of the tablename matching the first word (delimited by
+ * space or the terminating newline) in the buffer. If no word matches, the
+ * index of the terminating NULL-pointer is returned.
+ */
+int
+wsl_lookup_table(
+        unsigned char **tablenames,
+        unsigned char *line);
 
 /**
  * Lex multiple rows of given table and copy lexems to buffers.

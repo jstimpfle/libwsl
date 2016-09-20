@@ -61,7 +61,6 @@ wsl_lex_token(
                 r = wsl_lex_outbuf_store(buffer, begin, c);
                 break;
         case WSL_LEX_BRACKETS:
-                /* required check: this could be the newline */
                 if (*c != 0x5b) {
                         r = WSL_LEX_ERROR;
                         break;
@@ -103,7 +102,6 @@ wsl_lex_token_last(
                 r = wsl_lex_outbuf_store(buffer, begin, c);
                 break;
         case WSL_LEX_BRACKETS:
-                /* required check: this could be the newline */
                 if (*c != 0x5b) {
                         r = WSL_LEX_ERROR;
                         break;
@@ -131,33 +129,19 @@ wsl_match_table(
 
         while (*n && *n == *c)
                 n++, c++;
-        if (*n || *c != 0x20)
-                /* no match */
+        if (*n)
+                return 0;
+        if (*c != 0x20 && *c != 0x0a)
                 return 0;
         *end_r = c;
         return 1;
-}
-
-int
-wsl_lookup_table(
-        unsigned char **tablenames,
-        unsigned char *line)
-{
-        int i;
-        unsigned char *dummy;
-
-        i = 0;
-        while (tablenames[i] && !wsl_match_table(tablenames[i], line, &dummy))
-                i++;
-
-        return i;
 }
 
 enum wsl_lex_retcode
 wsl_lex_line(
         unsigned char *tablename,
         struct wsl_lex_cinfo **cinfo,
-        struct wsl_lex_outbuf **buffers,
+        struct wsl_lex_outbuf **buffer,
         unsigned char *begin,
         unsigned char **end_r)
 {
@@ -171,12 +155,10 @@ wsl_lex_line(
 
         r = WSL_LEX_OK;
         ci = cinfo;
-        bu = buffers;
+        bu = buffer;
         for (; *ci != NULL; ci++, bu++) {
-                if (*c != 0x20) {
-                        fprintf(stderr, "ERROR! %.32s\n", c);
+                if (*c != 0x20)
                         return WSL_LEX_ERROR;
-                }
                 c++;
                 if (ci[1] == NULL)
                         r = wsl_lex_token_last(*ci, *bu, c, &c);
@@ -193,10 +175,44 @@ wsl_lex_line(
 }
 
 enum wsl_lex_retcode
+wsl_lex_lines(
+        unsigned char *tablename,
+        struct wsl_lex_cinfo **cinfo,
+        struct wsl_lex_outbuf **buffer,
+        unsigned char *begin,
+        unsigned char *end,
+        unsigned char **begin_r)
+{
+        int r;
+        unsigned char *pos;
+
+        assert(begin == end || (begin > end && end[-1] == 0x0a));
+
+        r = WSL_LEX_OK;
+        pos = begin;
+        while (r == WSL_LEX_OK && pos < end)
+                r = wsl_lex_line(tablename, cinfo, buffer, pos, &pos);
+        *begin_r = pos;
+        return r;
+}
+
+int
+wsl_lookup_table(
+        unsigned char **tablenames,
+        unsigned char *line)
+{
+        int i = 0;
+        unsigned char *dummy = NULL;
+        while (tablenames[i] && !wsl_match_table(tablenames[i], line, &dummy))
+                i++;
+        return i;
+}
+
+enum wsl_lex_retcode
 wsl_lex_buffer(
         unsigned char **tablenames,
         struct wsl_lex_cinfo ***cinfo,
-        struct wsl_lex_outbuf ***buffers,
+        struct wsl_lex_outbuf ***buffer,
         unsigned char *begin,
         unsigned char *end,
         unsigned char **begin_r)
@@ -205,32 +221,17 @@ wsl_lex_buffer(
         size_t t;
         unsigned char *pos = begin;
 
-        while (pos < end) {
-
-                if (*pos == 0x0a || *pos == 0x25) {
-                        while (*pos != 0x0a)
-                                pos++;
-                        pos++;
-                        continue;
-                }
-
+        r = WSL_LEX_OK;
+        while (r == WSL_LEX_OK && pos < end) {
                 t = wsl_lookup_table(tablenames, pos);
                 if (tablenames[t] == NULL)
-                        /* TODO: more descriptive */
                         return WSL_LEX_ERROR;
-
-                r = wsl_lex_line(tablenames[t], cinfo[t], buffers[t],
-                                 pos, &pos);
-
-                if (r != WSL_LEX_OK)
-                        return r;
+                r = wsl_lex_lines(tablenames[t], cinfo[t], buffer[t],
+                                 pos, end, &pos);
         }
-
         *begin_r = pos;
-        return WSL_LEX_OK;
+        return r;
 }
-
-#include <stdio.h>
 
 struct wsl_lex_cinfo spacesep = { WSL_LEX_SPACESEP };
 struct wsl_lex_cinfo bracketsep = { WSL_LEX_BRACKETS };
