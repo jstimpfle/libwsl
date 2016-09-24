@@ -1,3 +1,6 @@
+#ifndef WSL_HEADER_BUF_H_
+#define WSL_HEADER_BUF_H_
+
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -64,3 +67,5 @@ wsl_buf_##name ##_shrink_to_fit(struct wsl_buf_##name *buf) \
 }
 
 WSL_DEFINE_BUF(int, int)
+
+#endif

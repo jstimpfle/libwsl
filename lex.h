@@ -1,11 +1,14 @@
+#ifndef WSL_HEADER_LEX_H_
+#define WSL_HEADER_LEX_H_
+
 #include <stddef.h>  /* size_t */
 
 /**
  * The size of a lex output buffer
  *
- * While a table is lexed, each column's values parses into its own output
- * buffer. The size of this buffer controls how much row data can be lexed
- * before the output needs to be processed.
+ * When a table is lexed, each column's values are put into the column's own
+ * output buffer. The size of this buffer controls how much row data can be
+ * lexed before the output needs to be processed.
  */
 #define WSL_LEX_OUTBUF_SIZE (16*4096)
 
@@ -13,7 +16,7 @@
  * Lex buffer for values of a column.
  *
  * If a lexem unexpectedly is too big to fit in the remaining space,
- * a big enough extra buffer is dynamically allocated and the lexec
+ * a big enough extra buffer is dynamically allocated and the lexem
  * is copied to it.
  */
 struct wsl_lex_outbuf {
@@ -56,21 +59,6 @@ struct wsl_lex_tinfo {
         struct wsl_lex_cinfo **cinfo;
 };
 
-/*
- * @WSL_LEX_OK: Everything lexed as expected
- * @WSL_LEX_OUTBUF_FULL: At least one of the output buffers is full
- * @WSL_LEX_WRONG_TABLE: Parsing was stopped because another table found
- * @WSL_LEX_ERROR: An error in the input was detected
- * @WSL_LEX_OOM: Dynamic memory allocation failed
- */
-enum wsl_lex_retcode {
-        WSL_LEX_OK = 0,
-        WSL_LEX_OUTBUF_FULL = 1,
-        WSL_LEX_WRONG_TABLE = 2,
-        WSL_LEX_ERROR = 3,
-        WSL_LEX_OOM = 4
-};
-
 /**
  * Lex a single token
  *
@@ -81,7 +69,7 @@ enum wsl_lex_retcode {
  * @end_r: If lexing was successful, the address of the first unconsumed
  *      character is stored here.
  */
-enum wsl_lex_retcode
+enum wsl_retcode
 sl_lex_token(
         struct wsl_lex_cinfo *info,
         struct wsl_lex_outbuf *buffer,
@@ -101,7 +89,7 @@ sl_lex_token(
  * This works like wsl_lex_token(), except that the token is expected to be
  * followed by the terminating newline character (instead of space).
  */
-enum wsl_lex_retcode
+enum wsl_retcode
 wsl_lex_token_last(
         struct wsl_lex_cinfo *info,
         struct wsl_lex_outbuf *buffer,
@@ -109,21 +97,18 @@ wsl_lex_token_last(
         unsigned char **end_r);
 
 /**
- * Lex a line of tokens separated by single spaces.
+ * Lex a table row of tokens separated by single spaces.
  *
- * @tablename: Name of the table of which a row is expected.
- * @info: NULL-terminated array of cinfo pointers corresponding to given table.
- * @buffer: Array of buffer pointers corresponding to the columns in the given
- *      table. Buffer pointers may be NULL in which case the lexems are
- *      discarded.
- * @begin: Pointer to beginning of the line to be lexed. Line must be
- *      terminated by a newline character.
+ * @info: NULL-terminated array of cinfo pointers corresponding to the table.
+ * @buffer: Array of buffer pointers corresponding to the columns of the table.
+ *      Each buffer pointers may be NULL in which case the lexem is discarded.
+ * @begin: Pointer to beginning of the row to be lexed (not including a
+ *      table name). Line must be terminated by a newline character.
  * @begin_r: If lexing was successful, the address of the character following
  *      the terminating newline character is stored here.
  */
-enum wsl_lex_retcode
-wsl_lex_line(
-        unsigned char *tablename,
+enum wsl_retcode
+wsl_lex_row(
         struct wsl_lex_cinfo **info,
         struct wsl_lex_outbuf **buffer,
         unsigned char *begin,
@@ -145,12 +130,12 @@ wsl_lex_line(
  * Return: WSL_OK if all lines in the buffer were lexed. Otherwise, the reason
  *      why the line at *begin_r* was not lexed successfully:
  *
- *      - WSL_LEX_ERROR
+ *      - WSL_ELEX
  *      - WSL_LEX_WRONG_TABLE
  *      - WSL_LEX_OUTBUF_FULL
  *      - WSL_LEX_OOM
  */
-enum wsl_lex_retcode
+enum wsl_retcode
 wsl_lex_lines(
         unsigned char *tablename,
         struct wsl_lex_cinfo **info,
@@ -188,9 +173,9 @@ wsl_lookup_table(
  *      line that was successfully lexed is stored in this pointer (or `begin`
  *      if no line was lexed successfully).
  *
- * Return: All values of `enum wsl_lex_retcode` are possible return values.
+ * Return: WSL_OK, WSL_ELEX, WSL_ENOMEM
  */
-enum wsl_lex_retcode
+enum wsl_retcode
 wsl_lex_buffer(
         unsigned char **tablenames,
         struct wsl_lex_cinfo ***info,
@@ -198,3 +183,5 @@ wsl_lex_buffer(
         unsigned char *begin,
         unsigned char *end,
         unsigned char **begin_r);
+
+#endif

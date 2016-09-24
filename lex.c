@@ -1,17 +1,22 @@
+/*
+ * lex.c
+ *
+ * This module reads WSL data from read buffers. It gets enough schema
+ * information to split each table line into tokens corresponding to the
+ * columns of the table. The lexems are stored into almost-fixed-size
+ * per-column lexem buffers. (Parsing does not occur here. The lexems can be
+ * parsed in per-column threads or contexts).
+ *
+ */
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "wsl.h"
 #include "lex.h"
 
-/* TODO: move away */
-#define WSL_UNREACHABLE() __builtin_unreachable()
-void *wsl_realloc(void *ptr, size_t nbytes)
-{
-        return realloc(ptr, nbytes);
-}
-
-enum wsl_lex_retcode
+enum wsl_retcode
 wsl_lex_outbuf_store(
         struct wsl_lex_outbuf *buffer,
         unsigned char *begin,
@@ -21,97 +26,85 @@ wsl_lex_outbuf_store(
         size_t req;
 
         if (buffer == NULL)
-                return WSL_LEX_OK;
+                return WSL_OK;
        
         req = end - begin + 1;
         if (WSL_LEX_OUTBUF_SIZE - buffer->size >= req) {
                 dst = &buffer->buf[buffer->size];
                 buffer->size += req;
         } else {
-                void *ptr = wsl_realloc(buffer->bigbuf, req);
+                void *ptr = realloc(buffer->bigbuf, req);
                 if (ptr == NULL)
-                        return WSL_LEX_OOM;
+                        return WSL_ENOMEM;
                 dst = ptr;
                 buffer->bigbuf = ptr;
                 buffer->bigsize = req;
         }
         memcpy(dst, begin, req-1);
         dst[req-1] = 0;
-        return WSL_LEX_OK;
+        return WSL_OK;
 }
 
-enum wsl_lex_retcode
+enum wsl_retcode
 wsl_lex_token(
         struct wsl_lex_cinfo *info,
         struct wsl_lex_outbuf *buffer,
         unsigned char *begin,
         unsigned char **end_r)
 {
-        int r = WSL_LEX_OK;
+        enum wsl_retcode r = WSL_OK;
         unsigned char *c = begin;
 
-        switch (info->type) {
-        case WSL_LEX_STOP:
-                WSL_UNREACHABLE();
-        case WSL_LEX_SPACESEP:
+        if (info->type == WSL_LEX_SPACESEP) {
                 while (*c > 0x20)
                         c++;
                 if (*c != 0x20)
-                        return WSL_LEX_ERROR;
+                        return WSL_ELEX;
                 r = wsl_lex_outbuf_store(buffer, begin, c);
-                break;
-        case WSL_LEX_BRACKETS:
-                if (*c != 0x5b) {
-                        r = WSL_LEX_ERROR;
-                        break;
-                }
+        } else if (info->type == WSL_LEX_BRACKETS) {
+                if (*c != 0x5b)
+                        return WSL_ELEX;
                 c++;
                 while (*c != 0x5d) {
                         if (*c == 0x0a)
-                                return WSL_LEX_ERROR;
+                                return WSL_ELEX;
                         c++;
                 }
                 c++;
                 r = wsl_lex_outbuf_store(buffer, begin+1, c-1);
-                break;
-        default:
+        } else {
                 WSL_UNREACHABLE();
         }
         *end_r = c;
         return r;
 }
 
-enum wsl_lex_retcode
+enum wsl_retcode
 wsl_lex_token_last(
         struct wsl_lex_cinfo *info,
         struct wsl_lex_outbuf *buffer,
         unsigned char *begin,
         unsigned char **end_r)
 {
-        int r = WSL_LEX_OK;
+        enum wsl_retcode r = WSL_OK;
         unsigned char *c = begin;
 
-        switch (info->type) {
-        case WSL_LEX_STOP:
+        if (info->type == WSL_LEX_STOP) {
                 while (*c != 0x0a)
                         c++;
-                break;
-        case WSL_LEX_SPACESEP:
+        } else if (info->type == WSL_LEX_SPACESEP) {
                 while (*c != 0x0a)
                         c++;
                 r = wsl_lex_outbuf_store(buffer, begin, c);
-                break;
-        case WSL_LEX_BRACKETS:
+        } else if (info->type == WSL_LEX_BRACKETS) {
                 if (*c != 0x5b) {
-                        r = WSL_LEX_ERROR;
-                        break;
+                        return WSL_ELEX;
                 }
                 c++;
                 while (*c != 0x0a)
                         c++;
                 r = wsl_lex_outbuf_store(buffer, begin+1, c-1);
-                break;
-        default:
+        } else {
                 WSL_UNREACHABLE();
         }
         *end_r = c;
@@ -137,44 +130,40 @@ wsl_match_table(
         return 1;
 }
 
-enum wsl_lex_retcode
-wsl_lex_line(
-        unsigned char *tablename,
+enum wsl_retcode
+wsl_lex_row(
         struct wsl_lex_cinfo **cinfo,
         struct wsl_lex_outbuf **buffer,
         unsigned char *begin,
         unsigned char **end_r)
 {
-        int r;
-        unsigned char *c;
-        struct wsl_lex_cinfo **ci;
-        struct wsl_lex_outbuf **bu;
+        enum wsl_retcode r = WSL_OK;
+        unsigned char *c = begin;
+        struct wsl_lex_cinfo **ci = cinfo;
+        struct wsl_lex_outbuf **bu = buffer;
 
-        if (!wsl_match_table(tablename, begin, &c))
-                return WSL_LEX_WRONG_TABLE;
-
-        r = WSL_LEX_OK;
-        ci = cinfo;
-        bu = buffer;
-        for (; *ci != NULL; ci++, bu++) {
-                if (*c != 0x20)
-                        return WSL_LEX_ERROR;
-                c++;
+        while (*ci != NULL) {
                 if (ci[1] == NULL)
                         r = wsl_lex_token_last(*ci, *bu, c, &c);
                 else
                         r = wsl_lex_token(*ci, *bu, c, &c);
-                if (r != WSL_LEX_OK) {
+                if (r != WSL_OK)
                         return r;
-                }
+                ci++;
+                bu++;
+                if (*ci == NULL)
+                        break;
+                if (*c != 0x20)
+                        return WSL_ELEX;
+                c++;
         }
         if (*c != 0x0a)
-                return WSL_LEX_ERROR;
+                return WSL_ELEX;
         *end_r = c + 1;
-        return WSL_LEX_OK;
+        return WSL_OK;
 }
 
-enum wsl_lex_retcode
+enum wsl_retcode
 wsl_lex_lines(
         unsigned char *tablename,
         struct wsl_lex_cinfo **cinfo,
@@ -183,15 +172,17 @@ wsl_lex_lines(
         unsigned char *end,
         unsigned char **begin_r)
 {
-        int r;
+        enum wsl_retcode r;
         unsigned char *pos;
 
         assert(begin == end || (begin > end && end[-1] == 0x0a));
 
-        r = WSL_LEX_OK;
+        r = WSL_OK;
         pos = begin;
-        while (r == WSL_LEX_OK && pos < end)
-                r = wsl_lex_line(tablename, cinfo, buffer, pos, &pos);
+        while (r == WSL_OK && pos < end
+                        && wsl_match_table(tablename, pos, &pos)) {
+                r = wsl_lex_row(cinfo, buffer, pos, &pos);
+        }
         *begin_r = pos;
         return r;
 }
@@ -208,7 +199,7 @@ wsl_lookup_table(
         return i;
 }
 
-enum wsl_lex_retcode
+enum wsl_retcode
 wsl_lex_buffer(
         unsigned char **tablenames,
         struct wsl_lex_cinfo ***cinfo,
@@ -217,15 +208,15 @@ wsl_lex_buffer(
         unsigned char *end,
         unsigned char **begin_r)
 {
-        int r;
+        enum wsl_retcode r;
         size_t t;
         unsigned char *pos = begin;
 
-        r = WSL_LEX_OK;
-        while (r == WSL_LEX_OK && pos < end) {
+        r = WSL_OK;
+        while (r == WSL_OK && pos < end) {
                 t = wsl_lookup_table(tablenames, pos);
                 if (tablenames[t] == NULL)
-                        return WSL_LEX_ERROR;
+                        return WSL_ELEX;
                 r = wsl_lex_lines(tablenames[t], cinfo[t], buffer[t],
                                  pos, end, &pos);
         }
@@ -284,7 +275,7 @@ struct wsl_lex_outbuf **world_buffers[] = {
 
 int main(void)
 {
-        int r;
+        enum wsl_retcode r;
         size_t size, end;
         size_t nread;
         unsigned char buf[BUFSIZE];
@@ -322,7 +313,7 @@ int main(void)
                                    &buf[0], &buf[end], &lexpos);
 #endif
 
-                if (r != WSL_LEX_OK) {
+                if (r != WSL_OK) {
                         fprintf(stderr, "lexer returned %d\n", r);
                         exit(1);
                 }

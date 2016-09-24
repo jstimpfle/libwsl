@@ -1,13 +1,15 @@
+#ifndef WSL_HEADER_DT_H_
+#define WSL_HEADER_DT_H_
+
 #include <stddef.h>
 
 /**
  * Context for parsing WSL databases
  *
- * TODO: This should hold things like available datatypes. We should be able
- * to instanciate an initial schema from it (which references this context).
+ * This holds run-time configurable things like available datatypes. Is used to
+ * construct an initial schema (which references this context).
  */
-struct wsl_ctx {
-};
+struct wsl_ctx;
 
 /**
  * Initializer function for a domain object.
@@ -89,7 +91,7 @@ WSL_COLUMN_EXITOR(void *column);
  *              some specialized datatypes might need this.
  */
 typedef
-enum wsl_encode_retcode
+enum wsl_retcode
 WSL_VALUE_ENCODER(
         void *column,
         size_t first,
@@ -116,12 +118,12 @@ WSL_VALUE_ENCODER(
  *      - WSL_ENOMEM if a required memory allocation could not be satisfied.
  */
 typedef
-enum wsl_decode_retcode
+enum wsl_retcode
 WSL_VALUE_DECODER(
         void *column,
         unsigned char *buf,
         unsigned char *end,
-        unsigned char *end_r);
+        unsigned char **end_r);
 
 /**
  * Datatype structure holding domain parser and destructor functions.
@@ -205,3 +207,5 @@ wsl_schema_register_ref(
         WSL_SCHEMA *schema,
         const char *name,
         WSL_REF *ref);
+
+#endif
