@@ -27,7 +27,7 @@ wsl_lex_outbuf_store(
 
         if (buffer == NULL)
                 return WSL_OK;
-       
+
         req = end - begin + 1;
         if (WSL_LEX_OUTBUF_SIZE - buffer->size >= req) {
                 dst = &buffer->buf[buffer->size];
@@ -111,7 +111,7 @@ wsl_lex_token_last(
         return r;
 }
 
-int
+enum wsl_retcode
 wsl_match_table(
         unsigned char *name,
         unsigned char *begin,
@@ -123,11 +123,11 @@ wsl_match_table(
         while (*n && *n == *c)
                 n++, c++;
         if (*n)
-                return 0;
+                return WSL_ERROR;
         if (*c != 0x20 && *c != 0x0a)
-                return 0;
+                return WSL_ERROR;
         *end_r = c;
-        return 1;
+        return WSL_OK;
 }
 
 enum wsl_retcode
@@ -172,18 +172,41 @@ wsl_lex_lines(
         unsigned char *end,
         unsigned char **begin_r)
 {
-        enum wsl_retcode r;
-        unsigned char *pos;
+        enum wsl_retcode r = WSL_OK;
+        unsigned char *c = begin;
+        unsigned char *line = begin;
 
-        assert(begin == end || (begin > end && end[-1] == 0x0a));
+        assert(begin == end || (begin < end && end[-1] == 0x0a));
 
-        r = WSL_OK;
-        pos = begin;
-        while (r == WSL_OK && pos < end
-                        && wsl_match_table(tablename, pos, &pos)) {
-                r = wsl_lex_row(cinfo, buffer, pos, &pos);
+        while (line < end) {
+                r = wsl_match_table(tablename, c, &c);
+                if (r != WSL_OK) {
+                        printf("did not match table %s %.32s!\n", tablename, (char*)begin);
+                        break;
+                }
+                if (*cinfo) {
+                        if (*c == 0x20) {
+                                r = wsl_lex_row(cinfo, buffer, c+1, &c);
+                                if (r != WSL_OK) {
+                                        fprintf(stderr, "ERROR: while lexing line: %s", begin);
+                                        fprintf(stderr, "ERROR: lexing returned %s\n",
+                                                wsl_error_string(r));
+                                }
+                        }
+
+                        else
+                                r = WSL_ELEX;
+                } else {
+                        if (*c == 0x0a)
+                                c++;
+                        else
+                                r = WSL_ELEX;
+                }
+                if (r != WSL_OK)
+                        break;
+                line = c;
         }
-        *begin_r = pos;
+        *begin_r = line;
         return r;
 }
 
@@ -194,7 +217,8 @@ wsl_lookup_table(
 {
         int i = 0;
         unsigned char *dummy = NULL;
-        while (tablenames[i] && !wsl_match_table(tablenames[i], line, &dummy))
+        while (tablenames[i] &&
+               wsl_match_table(tablenames[i], line, &dummy) != WSL_OK)
                 i++;
         return i;
 }
@@ -218,7 +242,7 @@ wsl_lex_buffer(
                 if (tablenames[t] == NULL)
                         return WSL_ELEX;
                 r = wsl_lex_lines(tablenames[t], cinfo[t], buffer[t],
-                                 pos, end, &pos);
+                                  pos, end, &pos);
         }
         *begin_r = pos;
         return r;
@@ -247,8 +271,11 @@ struct wsl_lex_cinfo **bw_cinfo[] = {
 };
 
 struct wsl_lex_outbuf **bw_buffers[] = {
+#if 0
         empty, empty, empty,
+#else
         bufarray, bufarray, bufarray
+#endif
 };
 
 
@@ -267,56 +294,61 @@ struct wsl_lex_cinfo **world_cinfo[] = {
 };
 
 struct wsl_lex_outbuf **world_buffers[] = {
+#if 0
         empty, empty, empty, empty,
+#else
         bufarray, bufarray, bufarray, bufarray
+#endif
 };
 
 #define BUFSIZE (16*(size_t)4096)
 
+#include <unistd.h>
 int main(void)
 {
         enum wsl_retcode r;
-        size_t size, end;
-        size_t nread;
-        unsigned char buf[BUFSIZE];
-        unsigned char *lexpos;
-
-        size = 0;
-        end = 0;
+        unsigned char buf[4096];
+        unsigned char *endptr;
+        size_t size = 0;  /* size of read data */
+        size_t end = 0;  /* position of byte past last newline (or 0) */
 
         for (;;) {
+                memmove(buf, buf + end, size - end);
                 size = size - end;
-                memmove(&buf[0], &buf[end], size);
-                nread = fread(&buf[size], 1, BUFSIZE-size, stdin);
-                size += nread;
-
-                if (size == 0)
+                ssize_t nread = read(STDIN_FILENO, buf + size,
+                                     sizeof buf - size);
+                if (nread == 0) {
+                        fprintf(stderr, "ok!\n");
                         break;
-
+                }
+                if (nread < 0) {
+                        perror("read()");
+                        exit(1);
+                }
+                size = size + nread;
                 end = size;
                 while (end > 0 && buf[end-1] != 0x0a)
                         end--;
-
                 if (end == 0) {
-                        fprintf(stderr, "Line did not fit in buffer!\n");
-                        fprintf(stderr, "ERROR: Handling this situation not implemented!\n");
-                        exit(1);
+                        fprintf(stderr,
+                                "ERROR: line too large for buffer: %.32s\n",
+                                buf);
                 }
 
 #if 0
                 r = wsl_lex_buffer((unsigned char **)world_tables,
                                    world_cinfo, world_buffers,
-                                   &buf[0], &buf[end], &lexpos);
+                                   buf, end, &endptr);
 #else
                 r = wsl_lex_buffer((unsigned char **)bw_tables,
                                    bw_cinfo, bw_buffers,
-                                   &buf[0], &buf[end], &lexpos);
+                                   buf, buf + end, &endptr);
 #endif
-
                 if (r != WSL_OK) {
-                        fprintf(stderr, "lexer returned %d\n", r);
-                        exit(1);
+                        fprintf(stderr, "lexing failed: %s\n",
+                                wsl_error_string(r));
                 }
         }
+
         return 0;
 }

@@ -20,6 +20,10 @@ enum wsl_retcode {
         WSL_ENOMEM
 };
 
+const char *
+wsl_error_string(
+        enum wsl_retcode r);
+
 #define WSL_UNREACHABLE() __builtin_unreachable()
 
 #endif

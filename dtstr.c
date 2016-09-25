@@ -70,7 +70,7 @@ wsl_dt_str_encode(
         struct wsl_vbuf *col = column;
         unsigned char *c = buf;
         size_t id = first;
-        
+
         while (id < last) {
                 size_t sz = wsl_vbuf_size(col, id);
                 if (c + sz + 1 >= end) {

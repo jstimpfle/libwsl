@@ -31,12 +31,12 @@ enum wsl_retcode \
 wsl_buf_##name ##_append(struct wsl_buf_##name *buf, type elt) \
 { \
         if (buf->size == buf->capacity) { \
-                void *ptr = realloc(buf->buf, \
-                                    2 * buf->capacity * sizeof (type)); \
+                size_t sz = buf->capacity ? (2 * buf->capacity) : 16; \
+                void *ptr = realloc(buf->buf, sz * sizeof (type)); \
                 if (ptr == NULL) \
                         return WSL_ENOMEM; \
                 buf->buf = ptr; \
-                buf->capacity *= 2; \
+                buf->capacity = sz; \
         } \
         buf->buf[buf->size++] = elt; \
         return WSL_OK; \
